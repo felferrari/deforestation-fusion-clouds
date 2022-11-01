@@ -44,8 +44,9 @@ def train_loop(dataloader, model, loss_fn, optimizer):
         optimizer.step()
 
     loss = train_loss/steps
-    print(f"Average Training Loss: {loss:.4f}, Average F1-Score: {f1_sum/steps:.4f}")
-    return loss
+    f1 = f1_sum/steps
+    print(f"Average Training Loss: {loss:.4f}, Average F1-Score: {f1:.4f}")
+    return loss, f1
 
 def val_loop(dataloader, model, loss_fn):
     """Evaluates a validation loop epoch
@@ -72,8 +73,9 @@ def val_loop(dataloader, model, loss_fn):
             pbar.set_description(f'Val Loss: {val_loss/steps:.4f}, F1-Score:{f1_sum/steps:.4f}  ')
 
     val_loss /= num_steps
-    print(f"Average Validation Loss: {val_loss:.4f}, Average F1-Score: {f1_sum/steps:.4f}")
-    return val_loss
+    val_f1 = f1_sum/steps
+    print(f"Average Validation Loss: {val_loss:.4f}, Average F1-Score: {val_f1:.4f}")
+    return val_loss, val_f1
 
 def val_sample_image(dataloader, model, path_to_samples, epoch):
     sample = next(iter(dataloader))

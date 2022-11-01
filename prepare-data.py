@@ -80,7 +80,7 @@ outfile = os.path.join(args.experiments_folder, 'data-prep.txt')
 with open(outfile, 'w') as sys.stdout:
     print('Generating statistics')
     opt_means, opt_stds = [], []
-    for opt_img in tqdm(args.opt_imgs):
+    for opt_img in tqdm(args.opt_imgs, desc = 'Opening Optical'):
         img = load_opt_image(os.path.join(args.opt_path, opt_img))
         img[np.isnan(img)] = 0
         opt_means.append(img.mean(axis=(0,1)))
@@ -93,7 +93,7 @@ with open(outfile, 'w') as sys.stdout:
     print(f'Optical stds: {opt_std}')
 
     sar_means, sar_stds = [], []
-    for sar_img in tqdm(args.sar_imgs):
+    for sar_img in tqdm(args.sar_imgs, desc = 'Opening SAR'):
         img = load_SAR_image(os.path.join(args.sar_path, sar_img))
         img[np.isnan(img)] = 0
         sar_means.append(img.mean(axis=(0,1)))
@@ -106,7 +106,7 @@ with open(outfile, 'w') as sys.stdout:
     print(f'SAR stds: {sar_std}')
 
     print('Preparing normalized data')
-    for opt_img in tqdm(args.opt_imgs):
+    for opt_img in tqdm(args.opt_imgs, desc = 'Preparing Optical'):
         img = load_opt_image(os.path.join(args.opt_path, opt_img))
         img[np.isnan(img)] = 0
         img = (img - opt_mean)/opt_std
@@ -114,7 +114,7 @@ with open(outfile, 'w') as sys.stdout:
         print(f'Optical Image {opt_img} stds: {img.std(axis=(0,1))}')
         np.save(os.path.join(paths.PREPARED_PATH, f'{general.OPT_PREFIX}_{opt_img[:-4]}'), img.astype(np.float16))
 
-    for sar_img in tqdm(args.sar_imgs):
+    for sar_img in tqdm(args.sar_imgs, desc = 'Preparing SAR'):
         img = load_SAR_image(os.path.join(args.sar_path, sar_img))
         img[np.isnan(img)] = 0
         img = (img - sar_mean)/sar_std
@@ -124,18 +124,18 @@ with open(outfile, 'w') as sys.stdout:
 
     print('Preparing general data')
     print('Preparing Cloud Maps')
-    for opt_img in tqdm(args.opt_imgs):
+    for opt_img in tqdm(args.opt_imgs, desc = 'Preparing Cloud Maps'):
         cmap = (load_single_band_image(os.path.join(args.general_folder, f'{general.CMAP_PREFIX}_{opt_img}')).round()*100).astype(np.uint8)
         np.save(os.path.join(paths.PREPARED_PATH, f'{general.CMAP_PREFIX}_{opt_img[:-4]}'), cmap)
         
 
     print('Preparing Labels')
-    for year in tqdm(args.years[1:]):
+    for year in tqdm(args.years[1:], desc = 'Preparing Labels'):
         label = load_single_band_image(os.path.join(args.general_folder, f'{general.LABEL_PREFIX}_{year}.tif')).astype(np.uint8)
         np.save(os.path.join(paths.PREPARED_PATH, f'{general.LABEL_PREFIX}_{year}'), label)
 
     print('Preparing Previous Def maps')
-    for year in tqdm(args.years[1:]):
+    for year in tqdm(args.years[1:], desc = 'Preparing Previous Def Map'):
         previous = load_single_band_image(os.path.join(args.general_folder, f'{general.PREVIOUS_PREFIX}_{year}.tif')).astype(np.float16)
         np.save(os.path.join(paths.PREPARED_PATH, f'{general.PREVIOUS_PREFIX}_{year}'), previous)
 
@@ -150,12 +150,19 @@ with open(outfile, 'w') as sys.stdout:
     idx_patches = view_as_windows(idx, window_shape, slide_step).reshape((-1, general.PATCH_SIZE, general.PATCH_SIZE))
 
     min_prop = args.def_min_prop
-
-    for year in tqdm(args.years[1:]):
+    np.random.seed(123)
+    for year in tqdm(args.years[1:], desc = 'Preparing patches'):
         label = load_single_band_image(os.path.join(args.general_folder, f'{general.LABEL_PREFIX}_{year}.tif')).astype(np.uint8).flatten()
 
         keep_1 = ((label[idx_patches] == 1).sum(axis=(1,2)) / general.PATCH_SIZE**2) >= min_prop
 
+        keep_args = np.argwhere(keep_1 == True).flatten()
+        no_keep_args = np.argwhere(keep_1 == False).flatten()
+        no_keep_args = np.random.choice(no_keep_args, (keep_1==True).sum())
+
+        keep_final = np.concatenate((keep_args, no_keep_args))
+
+        #all_idx_patches = idx_patches[keep_final]
         all_idx_patches = idx_patches[keep_1]
 
         keep_val = (tiles[all_idx_patches] == 0).sum(axis=(1,2)) == general.PATCH_SIZE**2

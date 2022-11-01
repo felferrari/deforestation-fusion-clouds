@@ -49,7 +49,7 @@ class TrainDataSet(Dataset):
             img = np.load(sar_file_1)
             self.sar_imgs_1.append(img.reshape((-1, img.shape[-1])))
 
-        cmap_files_0 = [os.path.join(paths.PREPARED_PATH, f'{general.CMAP_PREFIX}_{fi[13:]}') for fi in opt_files_0]
+        '''cmap_files_0 = [os.path.join(paths.PREPARED_PATH, f'{general.CMAP_PREFIX}_{fi[13:]}') for fi in opt_files_0]
         self.cmaps_0 = []
         for cmap_file_0 in cmap_files_0:
             img = np.load(cmap_file_0)
@@ -59,7 +59,7 @@ class TrainDataSet(Dataset):
         self.cmaps_1 = []
         for cmap_file_1 in cmap_files_1:
             img = np.load(cmap_file_1)
-            self.cmaps_1.append(img.reshape((-1, 1))/100)
+            self.cmaps_1.append(img.reshape((-1, 1))/100)'''
 
         label_file = os.path.join(paths.PREPARED_PATH, f'{general.LABEL_PREFIX}_{year}.npy')
         self.label = np.load(label_file)
@@ -96,8 +96,8 @@ class TrainDataSet(Dataset):
         sar_0 = self.transformer(self.sar_imgs_0[im_0][patch].astype(np.float32)).to(self.device)
         sar_1 = self.transformer(self.sar_imgs_1[im_1][patch].astype(np.float32)).to(self.device)
 
-        cmap_0 = self.transformer(self.cmaps_0[im_0][patch].astype(np.float32)).to(self.device)
-        cmap_1 = self.transformer(self.cmaps_1[im_1][patch].astype(np.float32)).to(self.device)
+        #cmap_0 = self.transformer(self.cmaps_0[im_0][patch].astype(np.float32)).to(self.device)
+        #cmap_1 = self.transformer(self.cmaps_1[im_1][patch].astype(np.float32)).to(self.device)
 
         prev_def = self.transformer(self.prev_def[patch].astype(np.float32)).to(self.device)
         label = torch.tensor(self.label[patch].astype(np.int64)).to(self.device)
@@ -107,31 +107,24 @@ class TrainDataSet(Dataset):
             opt_1,
             sar_0,
             sar_1,
-            cmap_0,
-            cmap_1,
+            None,#cmap_0,
+            None,#cmap_1,
             prev_def
         ), label
 
 
 class PredDataSet(Dataset):
-    def __init__(self, device, year, img_pair, transformer = ToTensor()) -> None:
+    def __init__(self, device, year, img_pair,  overlap = 0, transformer = ToTensor()) -> None:
         self.device = device
         self.transformer = transformer
+        self.overlap = overlap
 
         self.year_0 = str(year-1)[2:]
         self.year_1 = str(year)[2:]
 
         prep_files = os.listdir(paths.PREPARED_PATH)
 
-        label_file = os.path.join(paths.PREPARED_PATH, f'{general.LABEL_PREFIX}_{year}.npy')
-        self.label = np.load(label_file)
-        self.original_shape = self.label.shape
-        pred_step = general.PATCH_SIZE - 2 * general.PREDICTION_REMOVE_BORDER
-
-        self.pad_0 = pred_step - (self.original_shape[0] % pred_step) + general.PREDICTION_REMOVE_BORDER
-        self.pad_1 = pred_step - (self.original_shape[1] % pred_step) + general.PREDICTION_REMOVE_BORDER
-
-        pad_shape = ((general.PREDICTION_REMOVE_BORDER, self.pad_0), (general.PREDICTION_REMOVE_BORDER, self.pad_1), (0, 0))
+        pad_shape = ((general.PATCH_SIZE, general.PATCH_SIZE),(general.PATCH_SIZE, general.PATCH_SIZE),(0,0))
 
         opt_files_0 = [os.path.join(paths.PREPARED_PATH, fi) for fi in prep_files if fi.startswith(f'{general.OPT_PREFIX}_{self.year_0}')]
         self.opt_file_0 = opt_files_0[img_pair[0]]
@@ -160,8 +153,8 @@ class PredDataSet(Dataset):
         self.sar_img_1 = img.reshape((-1, img.shape[-1]))
         
 
-        pad_shape = ((general.PREDICTION_REMOVE_BORDER, self.pad_0), (general.PREDICTION_REMOVE_BORDER, self.pad_1))
-        cmap_files_0 = [os.path.join(paths.PREPARED_PATH, f'{general.CMAP_PREFIX}_{fi[13:]}') for fi in opt_files_0]
+        pad_shape = ((general.PATCH_SIZE, general.PATCH_SIZE),(general.PATCH_SIZE, general.PATCH_SIZE))
+        '''cmap_files_0 = [os.path.join(paths.PREPARED_PATH, f'{general.CMAP_PREFIX}_{fi[13:]}') for fi in opt_files_0]
         self.cmap_file_0 = cmap_files_0[img_pair[0]]
         img = np.load(self.cmap_file_0)
         img = np.pad(img, pad_shape, mode = 'reflect')
@@ -172,20 +165,25 @@ class PredDataSet(Dataset):
         self.cmap_file_1 = cmap_files_1[img_pair[1]]
         img = np.load(self.cmap_file_1)
         img = np.pad(img, pad_shape, mode = 'reflect')
-        self.cmap_img_1 = img.reshape((-1, 1))
+        self.cmap_img_1 = img.reshape((-1, 1))'''
 
 
         self.prev_def_file = os.path.join(paths.PREPARED_PATH, f'{general.PREVIOUS_PREFIX}_{year}.npy')
         self.prev_def = np.load(self.prev_def_file)
+        self.original_shape = self.prev_def.shape[:2]
         self.prev_def = np.pad(self.prev_def, pad_shape, mode = 'reflect')
-        shape_padded = self.prev_def.shape[:2]
+        shape = self.prev_def.shape[:2]
+        self.padded_shape = shape
         self.prev_def = self.prev_def.reshape((-1, 1))
 
-        idx_patches = np.arange(shape_padded[0]*shape_padded[1]).reshape(shape_padded)
+        idx_patches = np.arange(shape[0]*shape[1]).reshape(shape)
+        slide_step = int((1-overlap)*general.PATCH_SIZE)
         window_shape = (general.PATCH_SIZE, general.PATCH_SIZE)
-        self.idx_patches = view_as_windows(idx_patches, window_shape, pred_step)#.reshape((-1, general.PATCH_SIZE, general.PATCH_SIZE))
-        self.patches_shape = self.idx_patches.shape[:2]
-        self.idx_patches = self.idx_patches.reshape((-1, general.PATCH_SIZE, general.PATCH_SIZE))
+        self.idx_patches = view_as_windows(idx_patches, window_shape, slide_step).reshape((-1, general.PATCH_SIZE, general.PATCH_SIZE))
+
+        label_file = os.path.join(paths.PREPARED_PATH, f'{general.LABEL_PREFIX}_{year}.npy')
+        self.label = np.load(label_file)
+
 
 
     def __len__(self):
@@ -200,8 +198,8 @@ class PredDataSet(Dataset):
         sar_0 = self.transformer(self.sar_img_0[patch].astype(np.float32)).to(self.device)
         sar_1 = self.transformer(self.sar_img_1[patch].astype(np.float32)).to(self.device)
 
-        cmap_0 = self.transformer(self.cmap_img_0[patch].astype(np.float32)).to(self.device)
-        cmap_1 = self.transformer(self.cmap_img_1[patch].astype(np.float32)).to(self.device)
+        #cmap_0 = self.transformer(self.cmap_img_0[patch].astype(np.float32)).to(self.device)
+        #cmap_1 = self.transformer(self.cmap_img_1[patch].astype(np.float32)).to(self.device)
 
         prev_def = self.transformer(self.prev_def[patch].astype(np.float32)).to(self.device)
 
@@ -210,7 +208,7 @@ class PredDataSet(Dataset):
             opt_1,
             sar_0,
             sar_1,
-            cmap_0,
-            cmap_1,
+            None,#cmap_0
+            None,#cmap_1
             prev_def
         )

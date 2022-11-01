@@ -8,7 +8,8 @@ import time
 from multiprocessing import Process
 import sys
 from utils.dataloader import TrainDataSet
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+#from torch.utils.tensorboard import SummaryWriter
 import torch
 from torch import nn
 from utils.ops import count_parameters
@@ -23,7 +24,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument( # Experiment number
     '-e', '--experiment',
     type = int,
-    default = 2,
+    default = 6,
     help = 'The number of the experiment'
 )
 
@@ -37,7 +38,7 @@ parser.add_argument( # batch size
 parser.add_argument( # Number of models to be trained
     '-n', '--number-models',
     type = int,
-    default = 5,
+    default = default.N_MODELS,
     help = 'The number models to be trained from the scratch'
 )
 
@@ -55,9 +56,21 @@ parser.add_argument( # Data Augmentation
     help = 'Use or not data augmentation'
 )
 
+parser.add_argument( # Number of samples of each train epoch
+    '-t', '--number-train-samples',
+    type = int,
+    default = default.N_TRAIN_SAMPLES_PER_EPOCH,
+    help = 'The number of samples of each train epoch'
+)
+
+parser.add_argument( # Number of samples of each validation epoch
+    '-v', '--number-val-samples',
+    type = int,
+    default = default.N_VAL_SAMPLES_PER_EPOCH,
+    help = 'The number of samples of each validation epoch'
+)
+
 args = parser.parse_args()
-
-
 
 exp_path = os.path.join(str(args.experiments_path), f'exp_{args.experiment}')
 if not os.path.exists(exp_path):
@@ -88,22 +101,31 @@ print(f"Using {device} device")
 
 def run(model_idx):
     outfile = os.path.join(logs_path, f'train_{args.experiment}_{model_idx}.txt')
+    #summary_writer = SummaryWriter(log_dir=logs_path)
     with open(outfile, 'w') as sys.stdout:
 
         model_m =importlib.import_module(f'conf.exp_{args.experiment}')
-        model, lidar_bands = model_m.get_model()
+        model = model_m.get_model()
 
         print(f'Model: {model.__class__.__name__}')
         
-        path_to_patches_train = os.path.join(paths.PREPARED_PATH, 'train_patches.npy')
-        path_to_patches_val = os.path.join(paths.PREPARED_PATH, 'val_patches.npy')
+        #path_to_patches_train = os.path.join(paths.PREPARED_PATH, 'train_patches.npy')
+        #path_to_patches_val = os.path.join(paths.PREPARED_PATH, 'val_patches.npy')
 
         ds_train = TrainDataSet(ds = 'train', year = default.YEARS[1], device = device, data_aug=args.data_aug)
         ds_val = TrainDataSet(ds = 'val', year = default.YEARS[1], device = device)
-        ds_train[10]
 
-        dataloader_train = DataLoader(ds_train, batch_size=args.batch_size, shuffle=True)
-        dataloader_val = DataLoader(ds_val, batch_size=args.batch_size, shuffle=False)
+        if args.number_train_samples  == -1:
+            sampler_train = RandomSampler(ds_train)
+        else:
+            sampler_train = RandomSampler(ds_train, num_samples=args.number_train_samples)
+        if args.number_val_samples == -1:
+            sampler_val = RandomSampler(ds_val)
+        else:
+            sampler_val = RandomSampler(ds_val, num_samples=args.number_val_samples)
+        
+        dataloader_train = DataLoader(ds_train, batch_size=args.batch_size, sampler = sampler_train)
+        dataloader_val = DataLoader(ds_val, batch_size=args.batch_size, sampler = sampler_val)
 
         model.to(device)
 
@@ -112,6 +134,7 @@ def run(model_idx):
         torch.set_num_threads(8)
 
         loss_fn = nn.CrossEntropyLoss(ignore_index=2, weight=torch.tensor(general.CLASSES_WEIGHTS).to(device))
+       # loss_fn = nn.CrossEntropyLoss(weight=torch.tensor(general.CLASSES_WEIGHTS).to(device))
         #loss_fn = nn.BCELoss()
 
         optimizer = torch.optim.Adam(model.parameters(), lr=general.LEARNING_RATE)
@@ -148,11 +171,16 @@ def run(model_idx):
             verbose = True
             )
         for t in range(general.MAX_EPOCHS):
-            print(f"-------------------------------\nEpoch {t+1}")
+            epoch = t+1
+            print(f"-------------------------------\nEpoch {epoch}")
             model.train()
-            train_loop(dataloader_train, model, loss_fn, optimizer)
+            loss, f1 = train_loop(dataloader_train, model, loss_fn, optimizer)
+            #summary_writer.add_scalar('Loss/Train', loss)
+            #summary_writer.add_scalar('F1Score/Train', f1)
             model.eval()
-            val_loss = val_loop(dataloader_val, model, loss_fn)
+            val_loss, val_f1 = val_loop(dataloader_val, model, loss_fn)
+            #summary_writer.add_scalar('Loss/Validation', loss)
+            #summary_writer.add_scalar('F1Score/Validation', f1)
             #val_sample_image(dataloader_val, model, visual_path, t)
             if early_stop.testEpoch(model = model, val_value = val_loss):
                 break
