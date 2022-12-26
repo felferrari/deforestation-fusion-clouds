@@ -2,7 +2,7 @@ from torch import nn
 import torch
 from .layers import ResidualBlock
 
-class ResUnet(nn.Module):
+'''class ResUnet(nn.Module):
     def __init__(self, input_depth_0, input_depth_1, depths, n_classes):
         super(ResUnet, self).__init__()
         self.encoder = ResUnetEncoder(input_depth_0 + input_depth_1, depths)
@@ -19,7 +19,7 @@ class ResUnet(nn.Module):
         x = self.classifier(x)
 
         return x
-
+'''
 
 class LateFusion(nn.Module):
     def __init__(self, input_depth_0, input_depth_1, depths, n_classes):
@@ -52,7 +52,7 @@ class ResUnetOpt(nn.Module):
         self.classifier = ResUnetClassifier(depths[0], n_classes)
 
     def forward(self, x):
-        x = torch.cat((x[0], x[1], x[6]), dim=1)
+        x = torch.cat((x[0], x[1], x[4]), dim=1)
 
         x = self.encoder(x)
         x = self.decoder(x)
@@ -68,7 +68,7 @@ class ResUnetSAR(nn.Module):
         self.classifier = ResUnetClassifier(depths[0], n_classes)
 
     def forward(self, x):
-        x = torch.cat((x[2], x[3], x[6]), dim=1)
+        x = torch.cat((x[2], x[3], x[4]), dim=1)
 
         x = self.encoder(x)
         x = self.decoder(x)
@@ -84,7 +84,7 @@ class EarlyFusion(nn.Module):
         self.classifier = ResUnetClassifier(depths[0], n_classes)
 
     def forward(self, x):
-        x = torch.cat((x[0], x[1], x[2], x[3], x[6]), dim=1)
+        x = torch.cat((x[0], x[1], x[2], x[3], x[4]), dim=1)
 
         x = self.encoder(x)
         x = self.decoder(x)
@@ -102,8 +102,8 @@ class LateFusion(nn.Module):
         self.classifier = ResUnetClassifier(2*depths[0], n_classes)
 
     def forward(self, x):
-        x_0 = torch.cat((x[0], x[1], x[6]), dim=1)
-        x_1 = torch.cat((x[2], x[3], x[6]), dim=1)
+        x_0 = torch.cat((x[0], x[1], x[4]), dim=1)
+        x_1 = torch.cat((x[2], x[3], x[4]), dim=1)
 
         x_0  = self.encoder_0(x_0)
         x_1  = self.encoder_1(x_1)
@@ -117,7 +117,7 @@ class LateFusion(nn.Module):
 
         return x
 
-class JointFusion(nn.Module):
+'''class JointFusion(nn.Module):
     def __init__(self, input_depth_0, input_depth_1, depths, n_classes):
         super(JointFusion, self).__init__()
         self.encoder_0 = ResUnetEncoder(input_depth_0, depths)
@@ -142,7 +142,7 @@ class JointFusion(nn.Module):
         x = self.classifier(x)
 
         return x
-
+'''
 class JointFusionNoSkip(nn.Module):
     def __init__(self, input_depth_0, input_depth_1, depths, n_classes):
         super(JointFusionNoSkip, self).__init__()
@@ -152,8 +152,8 @@ class JointFusionNoSkip(nn.Module):
         self.classifier = ResUnetClassifier(depths[0], n_classes)
 
     def forward(self, x):
-        x_0 = torch.cat((x[0], x[1], x[6]), dim=1)
-        x_1 = torch.cat((x[2], x[3], x[6]), dim=1)
+        x_0 = torch.cat((x[0], x[1], x[4]), dim=1)
+        x_1 = torch.cat((x[2], x[3], x[4]), dim=1)
 
         x_0 = self.encoder_0(x_0)
         x_1 = self.encoder_1(x_1)
@@ -245,7 +245,7 @@ class ResUnetDecoderNoSkip(nn.Module):
 
         return x_0
 
-class ResUnetDecoderConcatSkip(nn.Module):
+'''class ResUnetDecoderConcatSkip(nn.Module):
     def __init__(self, depths):
         super(ResUnetDecoderConcatSkip, self).__init__()
         self.dec_block_2 = ResidualBlock(depths[2] + 2*depths[3], depths[2])
@@ -272,7 +272,7 @@ class ResUnetDecoderConcatSkip(nn.Module):
         x_0 = self.dec_block_0(x_0c)
 
         return x_0
-
+'''
 class ResUnetClassifier(nn.Module):
     def __init__(self, depth, n_classes):
         super(ResUnetClassifier, self).__init__()

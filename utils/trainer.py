@@ -59,12 +59,11 @@ def val_loop(dataloader, model, loss_fn):
     Returns:
         float: average loss of the epoch
     """
-    num_steps = len(dataloader)
     val_loss, f1_sum, steps = 0, 0, 0
     f1 = MulticlassF1Score(num_classes=general.N_CLASSES, ignore_index = 2)
     with torch.no_grad():
         pbar = tqdm(dataloader)
-        for X, y in pbar:
+        for (X, y) in pbar:
             pred = model(X)
             loss = loss_fn(pred, y)
             steps += 1
@@ -72,7 +71,7 @@ def val_loop(dataloader, model, loss_fn):
             val_loss += loss.item()
             pbar.set_description(f'Val Loss: {val_loss/steps:.4f}, F1-Score:{f1_sum/steps:.4f}  ')
 
-    val_loss /= num_steps
+    val_loss /= steps
     val_f1 = f1_sum/steps
     print(f"Average Validation Loss: {val_loss:.4f}, Average F1-Score: {val_f1:.4f}")
     return val_loss, val_f1

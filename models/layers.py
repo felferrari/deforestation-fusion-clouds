@@ -7,13 +7,13 @@ class ResidualBlock(nn.Module):
             nn.BatchNorm2d(in_dim),
             nn.ReLU(),
             #nn.Dropout(0.5),
-            nn.Conv2d(in_dim, out_dim, kernel_size=3, stride = stride, padding=1, padding_mode = 'reflect'),
+            nn.Conv2d(in_dim, out_dim, kernel_size=3, stride = stride, padding=1, padding_mode = 'zeros'),
             nn.BatchNorm2d(out_dim),
             nn.ReLU(),
             #nn.Dropout(0.5),
-            nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, padding_mode = 'reflect')
+            nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, padding_mode = 'zeros')
         )
-        self.idt_conv = nn.Conv2d(in_dim, out_dim, kernel_size=3, padding=1, stride = stride)
+        self.idt_conv = nn.Conv2d(in_dim, out_dim, kernel_size=3, padding=1, stride = stride, padding_mode = 'zeros')
 
     def forward(self, x):
         x_idt = self.idt_conv(x)

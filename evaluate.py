@@ -90,7 +90,17 @@ with open(outfile, 'w') as sys.stdout:
             pred_clean = pred_b
             pred_clean[label==2] = 2
             pred_clean[(pred_b - pred_red) == 1] = 2 
+            label_clean = label.copy()
+            label_clean[(pred_b - pred_red) == 1] = 2
             save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_avg_bin_{args.experiment}_{im_0}_{im_1}.tif'), pred_clean, dtype = 'byte')
+
+            error_map = np.zeros_like(label, dtype=np.uint8)
+            error_map[np.logical_and(pred_clean == 0, label_clean == 0)] = 0
+            error_map[np.logical_and(pred_clean == 1, label_clean == 1)] = 1
+            error_map[np.logical_and(pred_clean == 0, label_clean == 1)] = 2
+            error_map[np.logical_and(pred_clean == 1, label_clean == 0)] = 3
+
+            save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_error_map_{args.experiment}_{im_0}_{im_1}.tif'), error_map, dtype = 'byte')
 
             keep_samples = (label.flatten() != 2) #remove samples of class 2
             keep_samples[(pred_b - pred_red).flatten() == 1] = False #remove samples of deforestation smaller than 6.25ha

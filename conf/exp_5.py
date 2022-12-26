@@ -3,7 +3,7 @@ from models.models import LateFusion
 
 def get_model():
     print('Model Late fusion')
-    input_depth_0 = 2*general.N_OPTICAL_BANDS + 3
+    input_depth_0 = 2*general.N_OPTICAL_BANDS + 1
     input_depth_1 = 2*general.N_SAR_BANDS + 1
     model_depths = [32, 64, 128, 256]
     print(f'Model size: {model_depths}')

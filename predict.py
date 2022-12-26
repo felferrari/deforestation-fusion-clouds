@@ -12,7 +12,8 @@ from tqdm import tqdm
 import numpy as np
 from osgeo import ogr, gdal, gdalconst
 from utils.ops import load_dict, save_geotiff
-from multiprocessing import Process
+#from multiprocessing import Process, freeze_support
+from torch.multiprocessing import freeze_support
 
 parser = argparse.ArgumentParser(
     description='Train NUMBER_MODELS models based in the same parameters'
@@ -71,71 +72,97 @@ results_path = os.path.join(exp_path, f'results')
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using {device} device")
+#print(f"Using {device} device")
 
 #def run(model_idx):
-for model_idx in tqdm(range(args.number_models)):
+if __name__ == '__main__':
+    freeze_support()
+    for model_idx in tqdm(range(args.number_models), desc='Model Idx'):
 
-    outfile = os.path.join(logs_path, f'pred_{args.experiment}_{model_idx}.txt')
-    with open(outfile, 'w') as sys.stdout:
+        outfile = os.path.join(logs_path, f'pred_{args.experiment}_{model_idx}.txt')
+        with open(outfile, 'w') as sys.stdout:
 
-        #torch.set_num_threads(9)
+            model_m =importlib.import_module(f'conf.exp_{args.experiment}')
+            model = model_m.get_model()
+            model.to(device)
+            print(model)
 
-        model_m =importlib.import_module(f'conf.exp_{args.experiment}')
-        model = model_m.get_model()
-        model.to(device)
-        print(model)
+            model_path = os.path.join(models_path, f'model_{model_idx}.pth')
+            model.load_state_dict(torch.load(model_path))
 
-        model_path = os.path.join(models_path, f'model_{model_idx}.pth')
-        model.load_state_dict(torch.load(model_path))
+            torch.set_num_threads(8)
 
-        torch.set_num_threads(9)
+            overlaps = general.PREDICTION_OVERLAPS
+            print(f'Overlaps pred: {overlaps}')
+            one_window = np.ones((general.PATCH_SIZE, general.PATCH_SIZE, general.N_CLASSES))
 
-        overlaps = general.PREDICTION_OVERLAPS
+            for im_0 in tqdm(range(general.N_IMAGES_YEAR), leave=False, desc='Img 0'):
+                for im_1 in tqdm(range(general.N_IMAGES_YEAR), leave = False, desc='Img 1'):
+                    img_pair = (im_0, im_1)
+                    dataset = PredDataSet(device = device, year = args.year, img_pair = img_pair)
+                    label = dataset.label
+                    print(f'Optical Image Year 0:{dataset.opt_file_0}')
+                    print(f'Optical Image Year 1:{dataset.opt_file_1}')
+                    print(f'SAR Image Year 0:{dataset.sar_file_0}')
+                    print(f'SAR Image Year 1:{dataset.sar_file_1}')
+                    #print(f'CMAP Image Year 0:{dataset.cmap_file_0}')
+                    #print(f'CMAP Image Year 1:{dataset.cmap_file_1}')
+                    print(f'Prev Def Image Year 1:{dataset.prev_def_file}')
+                    pred_global_sum = np.zeros(dataset.original_shape+(general.N_CLASSES,))
+                    t0 = time.perf_counter()
+                    for overlap in tqdm(overlaps, leave=False, desc='Overlap'):
+                        print(f'Predicting overlap {overlap}')
+                        dataset.gen_patches(overlap = overlap)
+                        dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+                        
+                        pbar = tqdm(dataloader, desc='Prediction', leave = False)
+                        #preds = None
+                        preds = torch.zeros((len(dataset), general.N_CLASSES, general.PATCH_SIZE, general.PATCH_SIZE))
+                        for i, X in enumerate(pbar):
+                            with torch.no_grad():
+                                preds[args.batch_size*i: args.batch_size*(i+1)] =  model(X).to('cpu')
+                        preds = np.moveaxis(preds.numpy().astype(np.float16), 1, -1)
+                        pred_sum = np.zeros(dataset.padded_shape+(general.N_CLASSES,)).reshape((-1, general.N_CLASSES))
+                        pred_count = np.zeros(dataset.padded_shape+(general.N_CLASSES,)).reshape((-1, general.N_CLASSES))
+                        for idx, idx_patch in enumerate(tqdm(dataset.idx_patches, desc = 'Rebuild', leave = False)):
+                            crop_val = general.PREDICTION_REMOVE_BORDER
+                            idx_patch_crop = idx_patch[crop_val:-crop_val, crop_val:-crop_val]
+                            pred_sum[idx_patch_crop] += preds[idx][crop_val:-crop_val, crop_val:-crop_val]
+                            pred_count[idx_patch_crop] += one_window[crop_val:-crop_val, crop_val:-crop_val]
 
-        for im_0 in tqdm(range(general.N_IMAGES_YEAR), leave=False):
-            for im_1 in tqdm(range(general.N_IMAGES_YEAR), leave=False):
-                img_pair = (im_0, im_1)
-                dataset = PredDataSet(device = device, year = args.year, img_pair = img_pair)
-                dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
-                label = dataset.label
-                print(f'Optical Image Year 0:{dataset.opt_file_0}')
-                print(f'Optical Image Year 1:{dataset.opt_file_1}')
-                print(f'SAR Image Year 0:{dataset.sar_file_0}')
-                print(f'SAR Image Year 1:{dataset.sar_file_1}')
-                print(f'CMAP Image Year 0:{dataset.cmap_file_0}')
-                print(f'CMAP Image Year 1:{dataset.cmap_file_1}')
-                print(f'Prev Def Image Year 1:{dataset.prev_def_file}')
-                pred_global_sum = np.zeros(dataset.original_shape+(general.N_CLASSES,))
-                t0 = time.perf_counter()
-                
-                # pbar = tqdm(dataloader)
-                preds = None
-                for X in tqdm(dataloader, leave = False):
-                    with torch.no_grad():
-                        pred = model(X).to('cpu')[:, :, general.PREDICTION_REMOVE_BORDER:-general.PREDICTION_REMOVE_BORDER, general.PREDICTION_REMOVE_BORDER:-general.PREDICTION_REMOVE_BORDER]
-                    if preds is None:
-                        preds = pred#.to('cpu')
-                    else:
-                        preds = torch.cat((preds, pred), dim=0)
-                preds = preds.view((dataset.patches_shape)+preds.shape[1:]).numpy().astype(np.float16)
-                preds = np.moveaxis(preds, 2, -1)
-                pred_padded = None
-                for pred_line in tqdm(preds, leave = False):
-                    pred_list = [pred_i for pred_i in pred_line]
-                    pred_line_f = np.column_stack(pred_list)
-                    if pred_padded is  None:
-                        pred_padded = pred_line_f
-                    else:
-                        pred_padded = np.row_stack([pred_padded, pred_line_f])
-                pred_final = pred_padded[:general.PREDICTION_REMOVE_BORDER-dataset.pad_0, :general.PREDICTION_REMOVE_BORDER-dataset.pad_1]
+                            #pred_sum[idx_patch] += preds[idx]
+                            #pred_count[idx_patch] += one_window
+                        pred_sum = pred_sum.reshape(dataset.padded_shape+(general.N_CLASSES,))
+                        pred_count = pred_count.reshape(dataset.padded_shape+(general.N_CLASSES,))
 
-                np.save(os.path.join(predicted_path, f'{general.PREDICTION_PREFIX}_prob_{img_pair[0]}_{img_pair[1]}_{model_idx}.npy'), pred_final[:,:,1].astype(np.float16))
+                        pred_sum = pred_sum[general.PATCH_SIZE:-general.PATCH_SIZE,general.PATCH_SIZE:-general.PATCH_SIZE,:]
+                        pred_count = pred_count[general.PATCH_SIZE:-general.PATCH_SIZE,general.PATCH_SIZE:-general.PATCH_SIZE,:]
 
-                #save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_{args.experiment}_{img_pair[0]}_{img_pair[1]}_{model_idx}.tif'), pred_b, dtype = 'byte')
+                        pred_global_sum += pred_sum / pred_count
 
-                pred_b2 = (pred_final[:,:,1] > 0.5).astype(np.uint8)
-                pred_b2[label == 2] = 2
-                #save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_{args.experiment}_{img_pair[0]}_{img_pair[1]}_{model_idx}.tif'), pred_b2, dtype = 'byte')
-                #save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_probs_{args.experiment}_{img_pair[0]}_{img_pair[1]}_{model_idx}.tif'), pred_final[:,:,1], dtype = 'float')
+                    print(f'Prediction time: {(time.perf_counter() - t0)/60} mins')
+                    pred_global = pred_global_sum / len(overlaps)
+                    #pred_b = pred_global.argmax(axis=-1).astype(np.uint8)
 
+                    #pred_b[label == 2] = 2
+
+                    #np.save(os.path.join(predicted_path, f'{general.PREDICTION_PREFIX}_{img_pair[0]}_{img_pair[1]}_{model_idx}.npy'), pred_b)
+                    np.save(os.path.join(predicted_path, f'{general.PREDICTION_PREFIX}_prob_{img_pair[0]}_{img_pair[1]}_{model_idx}.npy'), pred_global[:,:,1].astype(np.float16))
+
+                    #save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_{args.experiment}_{img_pair[0]}_{img_pair[1]}_{model_idx}.tif'), pred_b, dtype = 'byte')
+
+                    pred_b2 = (pred_global[:,:,1] > 0.5).astype(np.uint8)
+                    pred_b2[label == 2] = 2
+                    save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_{args.experiment}_{img_pair[0]}_{img_pair[1]}_{model_idx}.tif'), pred_b2, dtype = 'byte')
+                    #save_geotiff(str(args.base_image), os.path.join(visual_path, f'{general.PREDICTION_PREFIX}_probs_{args.experiment}_{img_pair[0]}_{img_pair[1]}_{model_idx}.tif'), pred_global, dtype = 'float')
+
+
+'''
+if __name__=="__main__":
+    
+    for model_idx in range(args.number_models):
+        p = Process(target=run, args=(model_idx,))
+        p.start()
+        p.join()
+
+ '''       

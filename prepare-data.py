@@ -76,6 +76,8 @@ args = parser.parse_args()
 if not os.path.exists(paths.PREPARED_PATH):
     os.mkdir(paths.PREPARED_PATH)
 
+np.random.seed(123)
+
 outfile = os.path.join(args.experiments_folder, 'data-prep.txt')
 with open(outfile, 'w') as sys.stdout:
     print('Generating statistics')
@@ -125,7 +127,9 @@ with open(outfile, 'w') as sys.stdout:
     print('Preparing general data')
     print('Preparing Cloud Maps')
     for opt_img in tqdm(args.opt_imgs, desc = 'Preparing Cloud Maps'):
-        cmap = (load_single_band_image(os.path.join(args.general_folder, f'{general.CMAP_PREFIX}_{opt_img}')).round()*100).astype(np.uint8)
+        cmap = (load_single_band_image(os.path.join(args.general_folder, f'{general.CMAP_PREFIX}_{opt_img}'))).astype(np.float16)
+        cmap = 100*cmap
+        cmap = cmap.round().astype(np.uint8)
         np.save(os.path.join(paths.PREPARED_PATH, f'{general.CMAP_PREFIX}_{opt_img[:-4]}'), cmap)
         
 
@@ -148,22 +152,22 @@ with open(outfile, 'w') as sys.stdout:
     window_shape = (general.PATCH_SIZE, general.PATCH_SIZE)
     slide_step = int((1-general.OVERLAP_PROP)*general.PATCH_SIZE)
     idx_patches = view_as_windows(idx, window_shape, slide_step).reshape((-1, general.PATCH_SIZE, general.PATCH_SIZE))
-
     min_prop = args.def_min_prop
-    np.random.seed(123)
-    for year in tqdm(args.years[1:], desc = 'Preparing patches'):
+
+
+    for year in tqdm(args.years[1:-1], desc = 'Preparing patches'):
         label = load_single_band_image(os.path.join(args.general_folder, f'{general.LABEL_PREFIX}_{year}.tif')).astype(np.uint8).flatten()
 
-        keep_1 = ((label[idx_patches] == 1).sum(axis=(1,2)) / general.PATCH_SIZE**2) >= min_prop
+        keep = ((label[idx_patches] == 1).sum(axis=(1,2)) / general.PATCH_SIZE**2) >= min_prop
 
-        keep_args = np.argwhere(keep_1 == True).flatten()
-        no_keep_args = np.argwhere(keep_1 == False).flatten()
-        no_keep_args = np.random.choice(no_keep_args, (keep_1==True).sum())
+        keep_args = np.argwhere(keep == True).flatten() #args with at least min_prop deforestation
+        no_keep_args = np.argwhere(keep == False).flatten() #args with less than min_prop of deforestation
+        no_keep_args = np.random.choice(no_keep_args, (keep==True).sum())
 
         keep_final = np.concatenate((keep_args, no_keep_args))
 
-        #all_idx_patches = idx_patches[keep_final]
-        all_idx_patches = idx_patches[keep_1]
+        all_idx_patches = idx_patches[keep_final]
+        #all_idx_patches = idx_patches[keep_args]
 
         keep_val = (tiles[all_idx_patches] == 0).sum(axis=(1,2)) == general.PATCH_SIZE**2
         keep_train = (tiles[all_idx_patches] == 1).sum(axis=(1,2)) == general.PATCH_SIZE**2
@@ -171,11 +175,11 @@ with open(outfile, 'w') as sys.stdout:
         print(f'Train patches: {keep_train.sum()}')
         print(f'Validation patches: {keep_val.sum()}')
 
-        val_idx = all_idx_patches[keep_val]
-        train_idx = all_idx_patches[keep_train]
+        val_idx_patches = all_idx_patches[keep_val]
+        train_idx_patches = all_idx_patches[keep_train]
 
-        np.save(os.path.join(paths.PREPARED_PATH, f'{general.VAL_PREFIX}_{year}'), val_idx)
-        np.save(os.path.join(paths.PREPARED_PATH, f'{general.TRAIN_PREFIX}_{year}'), train_idx)
+        np.save(os.path.join(paths.PREPARED_PATH, f'{general.VAL_PREFIX}_{year}'), val_idx_patches)
+        np.save(os.path.join(paths.PREPARED_PATH, f'{general.TRAIN_PREFIX}_{year}'), train_idx_patches)
 
 
 
